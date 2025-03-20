@@ -4,18 +4,17 @@ import esbuild from 'rollup-plugin-esbuild';
 
 import { removeAllExceptTelemetryConfig } from './babel/get-telemetry-config';
 import commonjs from '@rollup/plugin-commonjs';
+import { removeNonReferencedNodes } from './babel/remove-non-referenced-nodes';
+import { recursiveRemoveNonReferencedNodes } from './plugins/remove-unused-references';
 
-export async function writeTelemetryConfig(
+export function getTelemetryBundler(
   entryFile: string,
-  outputDir: string,
-): Promise<{
-  hasCustomConfig: boolean;
-}> {
-  const result = {
-    hasCustomConfig: false,
-  };
-
-  const bundle = await rollup({
+  result: {
+    hasCustomConfig: false;
+  },
+) {
+  return rollup({
+    logLevel: 'silent',
     input: {
       'telemetry-config': entryFile,
     },
@@ -69,8 +68,37 @@ export async function writeTelemetryConfig(
         platform: 'node',
         minify: false,
       }),
+      {
+        name: 'cleanup',
+        transform(code, id) {
+          if (id !== entryFile) {
+            return;
+          }
+
+          return recursiveRemoveNonReferencedNodes(code);
+        },
+      },
+      // let esbuild remove all unused imports
+      esbuild({
+        target: 'node20',
+        platform: 'node',
+        minify: false,
+      }),
     ],
   });
+}
+
+export async function writeTelemetryConfig(
+  entryFile: string,
+  outputDir: string,
+): Promise<{
+  hasCustomConfig: boolean;
+}> {
+  const result = {
+    hasCustomConfig: false,
+  } as const;
+
+  const bundle = await getTelemetryBundler(entryFile, result);
 
   await bundle.write({
     dir: outputDir,
